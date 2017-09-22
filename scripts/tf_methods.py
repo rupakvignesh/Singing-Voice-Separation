@@ -105,8 +105,8 @@ def auto_encoder(dimensions,tied_weights=True, NUM_CONTEXT=0, optimizer = tf.tra
     """
 
     x = tf.placeholder(tf.float32, [None, dimensions[0]], name='x')
-    stddev = np.random.uniform(0,1.5)
-    current_input = gaussian_noise_layer(x, stddev)
+    n = tf.placeholder(tf.float32, [None, dimensions[0]], name='n')
+    current_input = x+n
     x_corrupt = current_input
 
     #Encoder
@@ -156,7 +156,7 @@ def auto_encoder(dimensions,tied_weights=True, NUM_CONTEXT=0, optimizer = tf.tra
 
     train = optimizer.minimize(loss)
 
-    return ({'x': x, 'I': I, 'dec_W': dec_W, 'encoder':encoder, 'decoder': decoder, "y": y, "loss":loss, "train":train, "z":z})
+    return ({'x': x, 'n':n 'I': I, 'dec_W': dec_W, 'encoder':encoder, 'decoder': decoder, "y": y, "loss":loss, "train":train, "z":z})
 
 
 def auto_encoder_gain_mask(dimensions,tied_weights=True, NUM_CONTEXT=0, optimizer = tf.train.AdamOptimizer(0.01), pretrain=False, lamb=0, binarize_gain=False):
