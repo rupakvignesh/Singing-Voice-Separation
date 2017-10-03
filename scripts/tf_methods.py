@@ -156,7 +156,7 @@ def auto_encoder(dimensions,tied_weights=True, NUM_CONTEXT=0, optimizer = tf.tra
 
     train = optimizer.minimize(loss)
 
-    return ({'x': x, 'n':n 'I': I, 'dec_W': dec_W, 'encoder':encoder, 'decoder': decoder, "y": y, "loss":loss, "train":train, "z":z})
+    return ({'x': x, 'n':n, 'I': I, 'dec_W': dec_W, 'encoder':encoder, 'decoder': decoder, "y": y, "loss":loss, "train":train, "z":z})
 
 
 def auto_encoder_gain_mask(dimensions,tied_weights=True, NUM_CONTEXT=0, optimizer = tf.train.AdamOptimizer(0.01), pretrain=False, lamb=0, binarize_gain=False):
