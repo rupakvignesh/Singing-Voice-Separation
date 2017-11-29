@@ -19,8 +19,8 @@ n_hidden = 1024 # hidden layer num of nodes
 n_hidden2 = 1024
 n_hidden3 = 1024
 n_classes = n_input # reconstruct input without background accompaniment
-learning_rate = 0.01
-num_epoch = 25
+learning_rate = 0.001
+num_epoch = 10
 batch_size = 128
 
 experiments_folder='/home/rvignesh/singing_voice_separation/experiments/expt7'
@@ -29,9 +29,9 @@ summaries_dir=experiments_folder+'/summaries'
 # tf Graph input
 print("Building computational graph")
 #x = tf.placeholder("float", [None, n_steps, n_input])
-x = tf.placeholder(tf.float32, [None, n_steps*n_input])
-background = tf.placeholder("float")
-clean_vocals = tf.placeholder("float")
+x = tf.placeholder(tf.float32, [None, n_steps*n_input], name='mix')
+background = tf.placeholder("float", name='background')
+clean_vocals = tf.placeholder("float", name='vocals')
 
 # Define weights
 #weights = {
@@ -73,7 +73,7 @@ hidden2_output = tf.nn.relu(tf.matmul(hidden1_output, weights2) + biases2)
 # output layer
 weights4 = tf.Variable(tf.random_normal([n_hidden2, n_classes]))
 biases4 = tf.Variable(tf.zeros([n_classes]))
-pred = (tf.matmul(hidden2_output,weights4)+biases4)
+pred = tf.add(tf.matmul(hidden2_output,weights4), biases4, name='predictions')
 
 #pred = RNN(x, weights, biases)
 print(pred.get_shape().as_list(),"RNN Output shape")
@@ -97,10 +97,6 @@ mix_feats = train_feats + noise_feats_train
 # valid_feats, _ = read_data(sys.argv[3])
 # noise_feats_valid, _ = read_data(sys.argv[4])
 
-#print("apply log")
-#train_feats = np.log(1+train_feats)
-#noise_feats_train = np.log(1+noise_feats_train)
-#mix_feats = np.log(1+mix_feats)
 
 #print("Normalize[0-1]")
 
@@ -142,27 +138,7 @@ with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         # valid_summary = sess.run(merged, feed_dict={inputs:valid_feats, ground_truth_labels: valid_labels})
         # valid_writer.add_summary(valid_summary,i)
 
-        if ((i+1)%10==0):
-            saver.save(sess, experiments_folder+'/saved_models/model', global_step=i+1)
+        
+        saver.save(sess, experiments_folder+'/saved_models/model', global_step=i+1)
 
         print("Epoch "+str(i)+ " loss", sess_loss/(num_train_instance/batch_size))
-    batch_x = train_feats_context[0:300]
-    batch_noise = noise_feats_train_context[0:300]
-    batch_x = batch_x + batch_noise
-    #batch_xi = batch_x.reshape((np.shape(batch_x)[0], n_steps, n_input))
-    outputs = sess.run(pred, feed_dict={x: batch_x})
-    center_batch_x = np.split(batch_x, n_steps,axis = 1)[num_context]
-    outputs = center_batch_x*outputs
-    print(np.shape(outputs),"Output shape")
-    with open("outputs.csv", "w") as csv_file:
-        for line in outputs:
-            for num in line:
-                csv_file.write(str(num)+',')
-            csv_file.write('\n')
-    csv_file.close()
-    #with open("batch_noise.csv", "w") as csv_file:
-    #    for line in noise_feats_train[0:128]:
-    #        for num in line:
-    #            csv_file.write(str(num)+',')
-    #        csv_file.write('\n')
-    #csv_file.close() 
