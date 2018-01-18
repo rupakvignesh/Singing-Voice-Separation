@@ -20,15 +20,9 @@ for i=1:length(audio_files)
     GT = fscanf(fileID,formatSpec);
     fclose(fileID);
     
-    vocal_wav = x(:,2)/max(x(:,2));
-    vocals = abs(spectrogram(vocal_wav, hann(win_size), win_size-hop_size, fft_size, fs));
-    vocals = vocals/max(max(vocals));
-    
-    back_wav = x(:,1)/max(x(:,1));
-    background = abs(spectrogram(back_wav, hann(win_size), win_size-hop_size, fft_size, fs));
-    background = background/max(max(background));
+    x = mean(x,2);
+    feats = abs(spectrogram(x, hann(win_size), win_size-hop_size, fft_size, fs));
 
-    feats = vocals + background;
     csv_file_name = strcat(op_feat_path, '/', filename,'.csv');
     csvwrite(csv_file_name, [feats; GT']');
 end

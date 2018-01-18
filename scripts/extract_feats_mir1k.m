@@ -1,4 +1,4 @@
-function [vocal_feats, background_feats] = extract_feats_mir1k
+function [vocal_feats, background_feats, mix_feats] = extract_feats_mir1k
 
 
 path_to_audio = '/Users/RupakVignesh/Desktop/fall17/7100/MIR-1K/Train/';
@@ -11,28 +11,30 @@ fft_size = 1024;
 sr = 16000;
 vocal_feats = [];
 background_feats = [];
+mix_feats = [];
 for i=1:length(audio_files)
     [~, filename,~] = fileparts(audio_files(i).name);
     [x, fs] = audioread(strcat(path_to_audio,'/',audio_files(i).name));
     x = resample(x, sr, fs); %Downsample
     
     % Read Grount truth
-    fileID = fopen(strcat(path_to_labels,filename,'.vocal'),'r');
-    formatSpec = '%f';
-    GT = fscanf(fileID,formatSpec);
-    fclose(fileID);
+%     fileID = fopen(strcat(path_to_labels,filename,'.vocal'),'r');
+%     formatSpec = '%f';
+%     GT = fscanf(fileID,formatSpec);
+%     fclose(fileID);
     
-    vocal_wav = x(:,2)/max(x(:,2));
+    vocal_wav = x(:,2);
     vocals = abs(spectrogram(vocal_wav, hann(win_size), win_size-hop_size, fft_size, fs));
-    %vocals_clean = spectral_sub(vocals);
-    vocals = vocals/max(max(vocals));
+    GT = zeros(size(vocals,2),1);   %dummy GT
     vocal_feats = [vocal_feats, [vocals; GT']];
     
-    back_wav = x(:,1)/max(x(:,1));
+    back_wav = x(:,1);
     background = abs(spectrogram(back_wav, hann(win_size), win_size-hop_size, fft_size, fs));
-    %background_clean = spectral_sub(background);
-    background = background/max(max(background));
-    background_feats = [background_feats, background];
+    background_feats = [background_feats, [background; GT']];
+    
+    mix_wav = mean(x,2);
+    mix = abs(spectrogram(mix_wav, hann(win_size), win_size-hop_size, fft_size, fs));
+    mix_feats = [mix_feats, [mix; GT']];
 
 
 end
