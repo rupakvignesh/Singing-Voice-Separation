@@ -11,6 +11,10 @@ import os, sys
 from tf_methods import *
 import pdb
 
+if len(sys.argv)==1:
+    print("Arg1: train vocal feats, Argv2: train background feats, Arg3: path to valid wav")
+    sys.exit()
+
 # Network Parameters
 n_input = 513 # Spectrogram
 num_context = 1
@@ -22,6 +26,7 @@ n_classes = n_input*n_steps # reconstruct input without background accompaniment
 learning_rate = 0.01
 num_epoch = 1000
 batch_size = 512
+eps = 1e-10
 
 #Audio  parameters
 src_sr = 16000
@@ -30,7 +35,7 @@ win_size = 640
 hop_size = 320
 fft_size = 1024
 
-experiments_folder='/home/rvignesh/singing_voice_separation/experiments/expt16'
+experiments_folder='/home/rvignesh/singing_voice_separation/experiments/expt21'
 summaries_dir=experiments_folder+'/summaries'
 
 # tf Graph input
@@ -64,8 +69,8 @@ biases5 = tf.Variable(tf.zeros([n_classes]), tf.float32, name='biases5')
 voc_tf_pred = tf.nn.relu(tf.add(tf.matmul(hidden3_output,weights4), biases4))
 back_tf_pred = tf.nn.relu(tf.add(tf.matmul(hidden3_output,weights5), biases5))
 
-est_vocals = (voc_tf_pred/(voc_tf_pred + back_tf_pred + 0.001)) * x_mix 
-est_background = (back_tf_pred/(voc_tf_pred + back_tf_pred + 0.001)) * x_mix
+est_vocals = (voc_tf_pred/(voc_tf_pred + back_tf_pred + eps)) * x_mix 
+est_background = (back_tf_pred/(voc_tf_pred + back_tf_pred + eps)) * x_mix
 
 est_vocals = tf.identity(est_vocals, name='estimated_vocals')
 est_background = tf.identity(est_background, name='estimated_background')
@@ -76,6 +81,7 @@ with tf.name_scope("Loss"):
     #print(current_frame_gain.get_shape(), "Current Frame Gain Shape")
 
 loss1 = tf.summary.scalar("loss1", loss)
+
 #Train op
 train = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
@@ -83,7 +89,22 @@ print("Reading Data")
 train_feats, _ = read_data(sys.argv[1])         # Clean Vocals
 noise_feats_train, _ = read_data(sys.argv[2])   # Background track
 valid_back, valid_voc, valid_mixed = get_wav_from_path(sys.argv[3], src_sr, tgt_sr)
+
+#Compute STFT
 valid_back_stft, valid_voc_stft, valid_mix_stft = list(map(lambda x: get_stft_from_wav(x, fft_size, hop_size, win_size), [valid_back, valid_voc, valid_mixed]))
+
+#Remove first and last frames for valid
+remove_frames = lambda x: [feat[:,1:-1] for feat in x]
+[valid_back_stft, valid_voc_stft, valid_mix_stft] = list(map(remove_frames, [valid_back_stft, valid_voc_stft, valid_mix_stft]))
+
+#Resynthesise waveforms from truncated stfts
+pred_phase = [np.angle(mix) for mix in valid_mix_stft]
+pred_phase_back = [np.angle(back) for back in valid_back_stft]
+pred_phase_voc = [np.angle(voc) for voc in valid_voc_stft]
+valid_back = get_wav_from_stft([np.abs(stft.T) for stft in valid_back_stft], pred_phase_back, hop_size, win_size)
+valid_voc = get_wav_from_stft([np.abs(stft.T) for stft in valid_voc_stft], pred_phase_voc, hop_size, win_size)
+valid_mixed = get_wav_from_stft([np.abs(stft.T) for stft in valid_mix_stft], pred_phase, hop_size, win_size)
+
 
 #print("Normalizing")
 #train_mean = np.mean(train_feats,axis=0)
@@ -92,12 +113,16 @@ valid_back_stft, valid_voc_stft, valid_mix_stft = list(map(lambda x: get_stft_fr
 #back_mean = np.mean(noise_feats_train,axis=0)
 #back_std = np.std(noise_feats_train,axis=0)
 #noise_feats_train = (noise_feats_train - back_mean)/(back_std)
-#print(np.shape(train_feats), "Train feats shape")
+#valid_voc_stft = [ (np.abs(feat.T) - train_mean)/(train_std) for feat in valid_voc_stft]
+#valid_back_stft = [ (np.abs(feat.T) - back_mean)/(back_std) for feat in valid_back_stft]
+#valid_mix_stft = [ (valid_voc_stft[i]+valid_back_stft[i]) for i in range(len(valid_voc))]
 
 print("Add context")
 train_feats_context = splice_feats(train_feats, num_context)
 noise_feats_train_context = splice_feats(noise_feats_train, num_context)
-valid_feats_mix_context = [splice_feats(np.abs(valid_feats.T), num_context) for valid_feats in valid_mix_stft]
+valid_feats_back_context = [splice_feats(np.abs(valid_feats.T), num_context) for valid_feats in valid_back_stft]
+valid_feats_voc_context = [splice_feats(np.abs(valid_feats.T), num_context) for valid_feats in valid_voc_stft]
+valid_feats_mix_context = [valid_feats_voc_context[i] + valid_feats_back_context[i] for i in range(len(valid_feats_voc_context))]
 print(np.shape(train_feats_context), "Train feats shape after slice feats")
 
 print ("Training Neural Network")
@@ -124,22 +149,21 @@ with tf.Session() as sess:
         
         pred_vocal_mag = []
         pred_back_mag = []
-        for mix in valid_feats_mix_context:
-                [a1, a2] = sess.run([est_vocals, est_background], feed_dict={x_mix: mix})
-                pred_vocal_mag.append(np.split(a1, n_steps, axis=1)[num_context])
-                pred_back_mag.append(np.split(a2, n_steps, axis=1)[num_context])
-        pred_phase = [np.angle(mix) for mix in valid_mix_stft]
+        valid_loss = 0
+        for val_ind in range(len(valid_voc)):
+                [a1, a2, batch_loss] = sess.run([est_vocals, est_background, loss], feed_dict={x_mix: valid_feats_mix_context[val_ind], clean_vocals: valid_feats_voc_context[val_ind], background: valid_feats_back_context[val_ind]})
+                pred_vocal_mag.append((np.split(a1, n_steps, axis=1)[num_context]))
+                pred_back_mag.append((np.split(a2, n_steps, axis=1)[num_context]))
+                valid_loss += batch_loss
         pred_vocal = get_wav_from_stft(pred_vocal_mag, pred_phase, hop_size, win_size)
         pred_back = get_wav_from_stft(pred_back_mag, pred_phase, hop_size, win_size)
         GNSDR, GSIR, GSAR = global_bss_metrics(valid_back, valid_voc, valid_mixed, pred_back, pred_vocal)
-        #valid_writer.add_summary(sess.run(tf.summary.scalar('GNSDR_vocal', tf.constant(GNSDR[1]))), i)
-        #valid_writer.add_summary(sess.run(tf.summary.scalar('GSIR_vocal', tf.constant(GSIR[1]))), i)
-        #valid_writer.add_summary(sess.run(tf.summary.scalar('GSAR_vocal', tf.constant(GSAR[1]))), i)
-        #valid_writer.add_summary(sess.run(tf.summary.audio('Pred_vocal', tf.constant(pred_vocal[0]), tgt_sr)), i) 
         
         if ((i+1)%10==0):
             saver.save(sess, experiments_folder+'/saved_models/model', global_step=i+1)
+            for val_ind in range(len(valid_voc)):
+                librosa.output.write_wav('predicted_valid'+str(val_ind)+'.wav', pred_vocal[val_ind], tgt_sr)
 
-        print("Epoch "+str(i)+ " Train loss", sess_loss/(num_train_instance/batch_size), "GNSDR vocal validation ",str(GNSDR[1]))
+        print("Epoch "+str(i)+ " Train loss", sess_loss/(num_train_instance/batch_size), "GNSDR, GSIR, GSAR ",str(GNSDR[1]), str(GSIR[1]),str(GSAR[1]), " Valid loss", valid_loss/len(valid_voc))
     
 
